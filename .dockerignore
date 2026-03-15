@@ -1,0 +1,16 @@
+.git
+.gitignore
+.tox
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+build
+dist
+.pytest_cache
+.mypy_cache
+.coverage
+coverage.xml
+.DS_Store
+.env

@@ -1,0 +1,82 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=OpenSearch!C0mp@ny
+      - plugins.security.disabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk -u admin:OpenSearch!C0mp@ny https://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.13.0
+    container_name: opensearch-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      - OPENSEARCH_HOSTS=https://opensearch:9200
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=OpenSearch!C0mp@ny
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app
+    environment:
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=OpenSearch!C0mp@ny
+      - OPENSEARCH_USE_SSL=true
+      - OPENSEARCH_VERIFY_CERTS=false
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    command: >
+      bash -c "
+        pip install --timeout 300 -e . &&
+        python scripts/index_companies.py
+      "
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=OpenSearch!C0mp@ny
+      - OPENSEARCH_USE_SSL=true
+      - OPENSEARCH_VERIFY_CERTS=false
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    command: >
+      bash -c "pip install -e . && python -m company_search"
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+volumes:
+  opensearch_data:
