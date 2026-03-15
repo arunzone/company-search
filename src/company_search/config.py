@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     opensearch_verify_certs: bool = False
     opensearch_index: str = "companies"
 
-    fastapi_host: str = "0.0.0.0"
+    fastapi_host: str = "0.0.0.0"  # nosec B104
     fastapi_port: int = 8000
     log_level: str = "INFO"
 

@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from company_search.application.search_service import SearchService
 from company_search.domain.models import SearchFilters, SearchResponse, SearchResult
-from company_search.domain.ports import SearchRepository
 from company_search.main import app
 from company_search.api.dependencies import get_search_service
 
@@ -19,6 +18,7 @@ from company_search.api.dependencies import get_search_service
 # ---------------------------------------------------------------------------
 # Stub repository — captures what filters were passed
 # ---------------------------------------------------------------------------
+
 
 class StubRepository:
     """In-memory stub that satisfies the SearchRepository protocol."""
@@ -57,6 +57,7 @@ def client(stub_repo: StubRepository) -> TestClient:
 # ---------------------------------------------------------------------------
 # Endpoint tests
 # ---------------------------------------------------------------------------
+
 
 class TestSearchEndpoint:
     def test_returns_200_with_no_params(self, client: TestClient):

@@ -21,8 +21,16 @@ _SORT_FIELD_MAP = {
 }
 
 _SOURCE_FIELDS = [
-    "id", "name", "domain", "year_founded", "industry",
-    "size_range", "locality", "country", "linkedin_url", "total_employee_estimate",
+    "id",
+    "name",
+    "domain",
+    "year_founded",
+    "industry",
+    "size_range",
+    "locality",
+    "country",
+    "linkedin_url",
+    "total_employee_estimate",
 ]
 
 
@@ -74,27 +82,31 @@ def _build_must(name: Optional[str]) -> list[dict[str, Any]]:
     ]
 
 
-def _build_filters(filters: SearchFilters) -> list[dict[str, Any]]:
-    clauses: list[dict[str, Any]] = []
-
-    if filters.industry:
-        clauses.append({"term": {"industry.keyword": filters.industry}})
-
-    if filters.locality:
-        clauses.append({"match": {"locality": {"query": filters.locality, "fuzziness": "AUTO"}}})
-
-    if filters.country:
-        clauses.append({"term": {"country.keyword": filters.country}})
-
+def _build_year_range(filters: SearchFilters) -> dict[str, int]:
     year_range: dict[str, int] = {}
     if filters.founded_year_min is not None:
         year_range["gte"] = filters.founded_year_min
     if filters.founded_year_max is not None:
         year_range["lte"] = filters.founded_year_max
-    if year_range:
-        clauses.append({"range": {"year_founded": year_range}})
+    return year_range
 
+
+def _build_term_clauses(filters: SearchFilters) -> list[dict[str, Any]]:
+    clauses: list[dict[str, Any]] = []
+    if filters.industry:
+        clauses.append({"term": {"industry.keyword": filters.industry}})
+    if filters.locality:
+        clauses.append({"match": {"locality": {"query": filters.locality, "fuzziness": "AUTO"}}})
+    if filters.country:
+        clauses.append({"term": {"country.keyword": filters.country}})
     if filters.size_range:
         clauses.append({"term": {"size_range": filters.size_range}})
+    return clauses
 
+
+def _build_filters(filters: SearchFilters) -> list[dict[str, Any]]:
+    clauses = _build_term_clauses(filters)
+    year_range = _build_year_range(filters)
+    if year_range:
+        clauses.append({"range": {"year_founded": year_range}})
     return clauses

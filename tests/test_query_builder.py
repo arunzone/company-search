@@ -1,7 +1,5 @@
 """Unit tests for the query builder — no I/O, no mocking needed."""
 
-import pytest
-
 from company_search.domain.models import SearchFilters, SortField, SortOrder
 from company_search.domain.query_builder import build_search_body, _build_must, _build_filters
 
@@ -80,15 +78,15 @@ class TestSorting:
 
     def test_sort_by_name(self):
         body = build_search_body(SearchFilters(sort_by=SortField.name), page=1, size=10)
-        assert body["sort"] == [{"name.keyword": {"order": "asc"}}]
+        assert body["sort"] == [{"name.keyword": {"order": "asc", "missing": "_last"}}]
 
     def test_sort_by_size_desc(self):
         body = build_search_body(SearchFilters(sort_by=SortField.size, sort_order=SortOrder.desc), page=1, size=10)
-        assert body["sort"] == [{"total_employee_estimate": {"order": "desc"}}]
+        assert body["sort"] == [{"total_employee_estimate": {"order": "desc", "missing": "_last"}}]
 
     def test_sort_by_founded_year(self):
         body = build_search_body(SearchFilters(sort_by=SortField.founded_year), page=1, size=10)
-        assert body["sort"] == [{"year_founded": {"order": "asc"}}]
+        assert body["sort"] == [{"year_founded": {"order": "asc", "missing": "_last"}}]
 
 
 class TestBuildSearchBody:
