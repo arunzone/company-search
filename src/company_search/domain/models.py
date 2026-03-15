@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 
 class SortField(str, Enum):
+    relevance = "relevance"
     name = "name"
     size = "size"
     founded_year = "founded_year"

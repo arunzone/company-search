@@ -30,7 +30,7 @@ def search_companies(
     founded_year_min: Annotated[Optional[int], Query(description="Founded year range start", ge=1800, le=2100)] = None,
     founded_year_max: Annotated[Optional[int], Query(description="Founded year range end", ge=1800, le=2100)] = None,
     size_range: Annotated[Optional[str], Query(description="Size range exact match, e.g. '10001+'")] = None,
-    sort_by: Annotated[Optional[SortField], Query(description="Sort field: name, size, founded_year")] = None,
+    sort_by: Annotated[Optional[SortField], Query(description="Sort field: relevance, name, size, founded_year")] = None,
     sort_order: Annotated[SortOrder, Query(description="Sort order: asc or desc")] = SortOrder.asc,
     page: Annotated[int, Query(ge=1, description="Page number")] = 1,
     size: Annotated[int, Query(ge=1, le=100, description="Results per page")] = 10,

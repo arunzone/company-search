@@ -18,6 +18,7 @@ _SORT_FIELD_MAP = {
     SortField.name: "name.keyword",
     SortField.size: "total_employee_estimate",
     SortField.founded_year: "year_founded",
+    SortField.relevance: "_score",
 }
 
 _SOURCE_FIELDS = [
@@ -32,6 +33,14 @@ _SOURCE_FIELDS = [
     "linkedin_url",
     "total_employee_estimate",
 ]
+
+
+def _build_sort_clause(filters: SearchFilters) -> dict[str, Any]:
+    field = _SORT_FIELD_MAP[filters.sort_by]
+    order: dict[str, Any] = {"order": filters.sort_order.value}
+    if filters.sort_by != SortField.relevance:
+        order["missing"] = "_last"
+    return {field: order}
 
 
 def build_search_body(filters: SearchFilters, page: int, size: int) -> dict[str, Any]:
@@ -53,7 +62,7 @@ def build_search_body(filters: SearchFilters, page: int, size: int) -> dict[str,
         "track_total_hits": True,
     }
     if filters.sort_by:
-        body["sort"] = [{_SORT_FIELD_MAP[filters.sort_by]: {"order": filters.sort_order.value, "missing": "_last"}}]
+        body["sort"] = [_build_sort_clause(filters)]
     return body
 
 

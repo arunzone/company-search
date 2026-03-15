@@ -76,6 +76,12 @@ class TestSorting:
         body = build_search_body(SearchFilters(), page=1, size=10)
         assert "sort" not in body
 
+    def test_sort_by_relevance_uses_score_without_missing(self):
+        body = build_search_body(
+            SearchFilters(sort_by=SortField.relevance, sort_order=SortOrder.desc), page=1, size=10
+        )
+        assert body["sort"] == [{"_score": {"order": "desc"}}]
+
     def test_sort_by_name(self):
         body = build_search_body(SearchFilters(sort_by=SortField.name), page=1, size=10)
         assert body["sort"] == [{"name.keyword": {"order": "asc", "missing": "_last"}}]
