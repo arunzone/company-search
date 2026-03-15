@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from company_search.api.dependencies import get_search_service
 from company_search.application.search_service import SearchService
-from company_search.domain.models import SearchFilters, SearchResponse
+from company_search.domain.models import SearchFilters, SearchResponse, SortField, SortOrder
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,18 @@ router = APIRouter(prefix="/companies", tags=["companies"])
 def search_companies(
     name: Annotated[Optional[str], Query(description="Company name (fuzzy match)")] = None,
     industry: Annotated[Optional[str], Query(description="Exact industry filter")] = None,
-    location: Annotated[Optional[str], Query(description="Locality or country (partial match)")] = None,
+    locality: Annotated[Optional[str], Query(description="City/locality (fuzzy match)")] = None,
+    country: Annotated[Optional[str], Query(description="Country (exact match)")] = None,
     founded_year_min: Annotated[Optional[int], Query(description="Founded year range start", ge=1800, le=2100)] = None,
     founded_year_max: Annotated[Optional[int], Query(description="Founded year range end", ge=1800, le=2100)] = None,
     size_range: Annotated[Optional[str], Query(description="Size range exact match, e.g. '10001+'")] = None,
+    sort_by: Annotated[Optional[SortField], Query(description="Sort field: name, size, founded_year")] = None,
+    sort_order: Annotated[SortOrder, Query(description="Sort order: asc or desc")] = SortOrder.asc,
     page: Annotated[int, Query(ge=1, description="Page number")] = 1,
     size: Annotated[int, Query(ge=1, le=100, description="Results per page")] = 10,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
-    """Search companies by name, industry, location, and founding year.
+    """Search companies by name, industry, locality, country, and founding year.
 
     At least one parameter is recommended; omitting all returns all companies paginated.
     """
@@ -43,10 +46,13 @@ def search_companies(
     filters = SearchFilters(
         name=name,
         industry=industry,
-        location=location,
+        locality=locality,
+        country=country,
         founded_year_min=founded_year_min,
         founded_year_max=founded_year_max,
         size_range=size_range,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     try:

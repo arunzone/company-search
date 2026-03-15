@@ -5,9 +5,21 @@ These are the canonical representations used across all layers.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+class SortField(str, Enum):
+    name = "name"
+    size = "size"
+    founded_year = "founded_year"
+
+
+class SortOrder(str, Enum):
+    asc = "asc"
+    desc = "desc"
 
 
 class SearchFilters(BaseModel):
@@ -15,10 +27,13 @@ class SearchFilters(BaseModel):
 
     name: Optional[str] = None
     industry: Optional[str] = None
-    location: Optional[str] = None
+    locality: Optional[str] = None
+    country: Optional[str] = None
     founded_year_min: Optional[int] = None
     founded_year_max: Optional[int] = None
     size_range: Optional[str] = None
+    sort_by: Optional[SortField] = None
+    sort_order: SortOrder = SortOrder.asc
 
 
 class SearchResult(BaseModel):
@@ -33,6 +48,7 @@ class SearchResult(BaseModel):
     locality: Optional[str] = None
     country: Optional[str] = None
     linkedin_url: Optional[str] = None
+    total_employee_estimate: Optional[int] = None
     score: float = 0.0
 
 

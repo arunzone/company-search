@@ -2,7 +2,7 @@
 
 import pytest
 
-from company_search.domain.models import SearchFilters
+from company_search.domain.models import SearchFilters, SortField, SortOrder
 from company_search.domain.query_builder import build_search_body, _build_must, _build_filters
 
 
@@ -29,15 +29,18 @@ class TestBuildFilters:
         clauses = _build_filters(filters)
         assert any("term" in c and c["term"] == {"industry.keyword": "computer software"} for c in clauses)
 
-    def test_location_filter_uses_bool_should(self):
-        filters = SearchFilters(location="california")
+    def test_locality_filter(self):
+        filters = SearchFilters(locality="new york")
         clauses = _build_filters(filters)
         assert len(clauses) == 1
-        assert "bool" in clauses[0]
-        should = clauses[0]["bool"]["should"]
-        fields = [list(c["match"].keys())[0] for c in should]
-        assert "locality" in fields
-        assert "country" in fields
+        assert "match" in clauses[0]
+        assert "locality" in clauses[0]["match"]
+
+    def test_country_filter(self):
+        filters = SearchFilters(country="united states")
+        clauses = _build_filters(filters)
+        assert len(clauses) == 1
+        assert clauses[0] == {"term": {"country.keyword": "united states"}}
 
     def test_year_range_filter_min_only(self):
         filters = SearchFilters(founded_year_min=2000)
@@ -60,13 +63,32 @@ class TestBuildFilters:
     def test_all_filters_combined(self):
         filters = SearchFilters(
             industry="internet",
-            location="new york",
+            locality="new york",
+            country="united states",
             founded_year_min=2005,
             founded_year_max=2015,
             size_range="51-200",
         )
         clauses = _build_filters(filters)
-        assert len(clauses) == 4  # industry, location, year range, size
+        assert len(clauses) == 5  # industry, locality, country, year range, size
+
+
+class TestSorting:
+    def test_no_sort_by_omits_sort_key(self):
+        body = build_search_body(SearchFilters(), page=1, size=10)
+        assert "sort" not in body
+
+    def test_sort_by_name(self):
+        body = build_search_body(SearchFilters(sort_by=SortField.name), page=1, size=10)
+        assert body["sort"] == [{"name.keyword": {"order": "asc"}}]
+
+    def test_sort_by_size_desc(self):
+        body = build_search_body(SearchFilters(sort_by=SortField.size, sort_order=SortOrder.desc), page=1, size=10)
+        assert body["sort"] == [{"total_employee_estimate": {"order": "desc"}}]
+
+    def test_sort_by_founded_year(self):
+        body = build_search_body(SearchFilters(sort_by=SortField.founded_year), page=1, size=10)
+        assert body["sort"] == [{"year_founded": {"order": "asc"}}]
 
 
 class TestBuildSearchBody:

@@ -5,18 +5,24 @@ No I/O, no side effects — fully unit-testable without mocking.
 Query strategy:
   must  → multi_match on name (drives relevance score, fuzziness=AUTO)
           or match_all when no name is given
-  filter → industry, location, year range (bitset-cached, zero-score impact)
+  filter → industry, locality, country, year range (bitset-cached, zero-score impact)
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from company_search.domain.models import SearchFilters
+from company_search.domain.models import SearchFilters, SortField
+
+_SORT_FIELD_MAP = {
+    SortField.name: "name.keyword",
+    SortField.size: "total_employee_estimate",
+    SortField.founded_year: "year_founded",
+}
 
 _SOURCE_FIELDS = [
     "id", "name", "domain", "year_founded", "industry",
-    "size_range", "locality", "country", "linkedin_url",
+    "size_range", "locality", "country", "linkedin_url", "total_employee_estimate",
 ]
 
 
@@ -31,13 +37,16 @@ def build_search_body(filters: SearchFilters, page: int, size: int) -> dict[str,
     Returns:
         Full OpenSearch search request body.
     """
-    return {
+    body: dict[str, Any] = {
         "query": _build_query(filters),
         "from": (page - 1) * size,
         "size": size,
         "_source": _SOURCE_FIELDS,
         "track_total_hits": True,
     }
+    if filters.sort_by:
+        body["sort"] = [{_SORT_FIELD_MAP[filters.sort_by]: {"order": filters.sort_order.value, "missing": "_last"}}]
+    return body
 
 
 def _build_query(filters: SearchFilters) -> dict[str, Any]:
@@ -71,18 +80,11 @@ def _build_filters(filters: SearchFilters) -> list[dict[str, Any]]:
     if filters.industry:
         clauses.append({"term": {"industry.keyword": filters.industry}})
 
-    if filters.location:
-        clauses.append(
-            {
-                "bool": {
-                    "should": [
-                        {"match": {"locality": {"query": filters.location, "fuzziness": "AUTO"}}},
-                        {"match": {"country": {"query": filters.location, "fuzziness": "AUTO"}}},
-                    ],
-                    "minimum_should_match": 1,
-                }
-            }
-        )
+    if filters.locality:
+        clauses.append({"match": {"locality": {"query": filters.locality, "fuzziness": "AUTO"}}})
+
+    if filters.country:
+        clauses.append({"term": {"country.keyword": filters.country}})
 
     year_range: dict[str, int] = {}
     if filters.founded_year_min is not None:

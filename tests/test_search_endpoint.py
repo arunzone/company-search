@@ -79,9 +79,13 @@ class TestSearchEndpoint:
         client.get("/companies/search?industry=internet")
         assert stub_repo.last_filters.industry == "internet"
 
-    def test_location_param_is_passed_to_filters(self, client: TestClient, stub_repo: StubRepository):
-        client.get("/companies/search?location=california")
-        assert stub_repo.last_filters.location == "california"
+    def test_locality_param_is_passed_to_filters(self, client: TestClient, stub_repo: StubRepository):
+        client.get("/companies/search?locality=san+francisco")
+        assert stub_repo.last_filters.locality == "san francisco"
+
+    def test_country_param_is_passed_to_filters(self, client: TestClient, stub_repo: StubRepository):
+        client.get("/companies/search?country=united+states")
+        assert stub_repo.last_filters.country == "united states"
 
     def test_year_range_params(self, client: TestClient, stub_repo: StubRepository):
         client.get("/companies/search?founded_year_min=2000&founded_year_max=2010")
