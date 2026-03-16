@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -45,8 +44,10 @@ class StubTagRepository:
 
     def list_tags(self, user_id: Optional[str]) -> list[TagSummary]:
         relevant = [t for t in self._docs.values() if self._is_visible(t, user_id)]
-        counts: Counter[tuple[str, TagType]] = Counter((t.tag, t.tag_type) for t in relevant)
-        return [TagSummary(tag=tag, tag_type=tt, company_count=count) for (tag, tt), count in counts.items()]
+        ids_map: dict[tuple[str, TagType], list[str]] = {}
+        for t in relevant:
+            ids_map.setdefault((t.tag, t.tag_type), []).append(t.company_id)
+        return [TagSummary(tag=tag, tag_type=tt, company_ids=ids) for (tag, tt), ids in ids_map.items()]
 
     def get_company_ids_for_tag(self, tag: str, user_id: Optional[str]) -> list[str]:
         return [t.company_id for t in self._docs.values() if t.tag == tag and self._is_visible(t, user_id)]
@@ -135,7 +136,7 @@ class TestListTags:
         service.add_tag("c2", TagCreate(tag="competitors", tag_type=TagType.personal, user_id="u1"))
         service.add_tag("c3", TagCreate(tag="partners", tag_type=TagType.personal, user_id="u1"))
         summaries = service.list_tags("u1")
-        counts = {s.tag: s.company_count for s in summaries}
+        counts = {s.tag: len(s.company_ids) for s in summaries}
         assert counts["competitors"] == 2
         assert counts["partners"] == 1
 

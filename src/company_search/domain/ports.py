@@ -6,7 +6,7 @@ inheritance, keeping infrastructure decoupled from the domain.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from company_search.domain.models import SearchFilters, SearchResponse
 

@@ -62,11 +62,12 @@ def _list_query(user_id: Optional[str]) -> dict[str, Any]:
 
 
 def _parse_tag_summaries(raw: dict[str, Any]) -> list[TagSummary]:
-    buckets = raw["aggregations"]["by_tag"]["buckets"]
-    return [
-        TagSummary(tag=b["key"]["tag"], tag_type=TagType(b["key"]["tag_type"]), company_count=b["doc_count"])
-        for b in buckets
-    ]
+    groups: dict[tuple[str, str], list[str]] = {}
+    for hit in raw["hits"]["hits"]:
+        src = hit["_source"]
+        key = (src["tag"], src["tag_type"])
+        groups.setdefault(key, []).append(src["company_id"])
+    return [TagSummary(tag=tag, tag_type=TagType(tt), company_ids=ids) for (tag, tt), ids in groups.items()]
 
 
 class OpenSearchTagRepository:
@@ -102,18 +103,8 @@ class OpenSearchTagRepository:
     def list_tags(self, user_id: Optional[str]) -> list[TagSummary]:
         body: dict[str, Any] = {
             "query": _list_query(user_id),
-            "size": 0,
-            "aggs": {
-                "by_tag": {
-                    "composite": {
-                        "size": 200,
-                        "sources": [
-                            {"tag": {"terms": {"field": "tag"}}},
-                            {"tag_type": {"terms": {"field": "tag_type"}}},
-                        ],
-                    }
-                }
-            },
+            "_source": ["tag", "tag_type", "company_id"],
+            "size": _MAX_TAG_IDS,
         }
         raw = self._client.search(index=TAG_INDEX, body=body)
         return _parse_tag_summaries(raw)

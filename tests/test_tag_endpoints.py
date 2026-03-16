@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -50,8 +49,10 @@ class StubTagRepository:
 
     def list_tags(self, user_id: Optional[str]) -> list[TagSummary]:
         relevant = [t for t in self._docs.values() if self._is_visible(t, user_id)]
-        counts: Counter[tuple[str, TagType]] = Counter((t.tag, t.tag_type) for t in relevant)
-        return [TagSummary(tag=tag, tag_type=tt, company_count=count) for (tag, tt), count in counts.items()]
+        ids_map: dict[tuple[str, TagType], list[str]] = {}
+        for t in relevant:
+            ids_map.setdefault((t.tag, t.tag_type), []).append(t.company_id)
+        return [TagSummary(tag=tag, tag_type=tt, company_ids=ids) for (tag, tt), ids in ids_map.items()]
 
     def get_company_ids_for_tag(self, tag: str, user_id: Optional[str]) -> list[str]:
         return [t.company_id for t in self._docs.values() if t.tag == tag and self._is_visible(t, user_id)]
@@ -159,7 +160,7 @@ class TestListTags:
     def test_returns_personal_and_public_tags_with_user_id(self, client: TestClient) -> None:
         client.post("/companies/c1/tags", json={"tag": "competitors", "tag_type": "personal", "user_id": USER_ID})
         client.post("/companies/c2/tags", json={"tag": "hot-prospect", "tag_type": "public"})
-        tags = {t["tag"]: t["company_count"] for t in client.get(f"/tags?user_id={USER_ID}").json()}
+        tags = {t["tag"]: len(t["company_ids"]) for t in client.get(f"/tags?user_id={USER_ID}").json()}
         assert tags["competitors"] == 1
         assert tags["hot-prospect"] == 1
 

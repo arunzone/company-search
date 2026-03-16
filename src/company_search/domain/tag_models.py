@@ -25,7 +25,7 @@ class Tag(BaseModel):
 class TagSummary(BaseModel):
     tag: str
     tag_type: TagType
-    company_count: int
+    company_ids: list[str]
 
 
 class TagCreate(BaseModel):

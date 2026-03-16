@@ -22,12 +22,6 @@ def get_repository() -> OpenSearchRepository:
 
 
 @lru_cache(maxsize=1)
-def get_search_service() -> SearchService:
-    """Return the shared SearchService instance."""
-    return SearchService(repository=get_repository())
-
-
-@lru_cache(maxsize=1)
 def get_tag_repository() -> OpenSearchTagRepository:
     """Return the shared OpenSearch tag repository instance."""
     return OpenSearchTagRepository(client=get_opensearch_client())
@@ -37,3 +31,10 @@ def get_tag_repository() -> OpenSearchTagRepository:
 def get_tag_service() -> TagService:
     """Return the shared TagService instance."""
     return TagService(repository=get_tag_repository())
+
+
+@lru_cache(maxsize=1)
+def get_search_service() -> SearchService:
+    """Return the shared SearchService instance."""
+    return SearchService(repository=get_repository(), tag_service=get_tag_service())
+

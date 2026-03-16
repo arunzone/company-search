@@ -118,6 +118,6 @@ def _build_filters(filters: SearchFilters) -> list[dict[str, Any]]:
     year_range = _build_year_range(filters)
     if year_range:
         clauses.append({"range": {"year_founded": year_range}})
-    if filters.company_ids is not None:
+    if filters.company_ids:
         clauses.append({"ids": {"values": filters.company_ids}})
     return clauses
