@@ -68,5 +68,6 @@ class OpenSearchRepository:
             locality=source.get("locality"),
             country=source.get("country"),
             linkedin_url=source.get("linkedin_url"),
+            total_employee_estimate=source.get("total_employee_estimate"),
             score=hit.get("_score") or 0.0,
         )

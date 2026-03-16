@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from company_search.domain.models import SearchFilters, SortField
+from company_search.domain.models import SearchFilters, SortField, SortOrder
 
 _SORT_FIELD_MAP = {
     SortField.name: "name.keyword",
@@ -35,10 +35,10 @@ _SOURCE_FIELDS = [
 ]
 
 
-def _build_sort_clause(filters: SearchFilters) -> dict[str, Any]:
-    field = _SORT_FIELD_MAP[filters.sort_by]
-    order: dict[str, Any] = {"order": filters.sort_order.value}
-    if filters.sort_by != SortField.relevance:
+def _build_sort_clause(sort_by: SortField, sort_order: SortOrder) -> dict[str, Any]:
+    field = _SORT_FIELD_MAP[sort_by]
+    order: dict[str, Any] = {"order": sort_order.value}
+    if sort_by != SortField.relevance:
         order["missing"] = "_last"
     return {field: order}
 
@@ -62,7 +62,7 @@ def build_search_body(filters: SearchFilters, page: int, size: int) -> dict[str,
         "track_total_hits": True,
     }
     if filters.sort_by:
-        body["sort"] = [_build_sort_clause(filters)]
+        body["sort"] = [_build_sort_clause(filters.sort_by, filters.sort_order)]
     return body
 
 
@@ -118,4 +118,6 @@ def _build_filters(filters: SearchFilters) -> list[dict[str, Any]]:
     year_range = _build_year_range(filters)
     if year_range:
         clauses.append({"range": {"year_founded": year_range}})
+    if filters.company_ids is not None:
+        clauses.append({"ids": {"values": filters.company_ids}})
     return clauses

@@ -33,6 +33,7 @@ class SearchFilters(BaseModel):
     founded_year_min: Optional[int] = None
     founded_year_max: Optional[int] = None
     size_range: Optional[str] = None
+    company_ids: Optional[list[str]] = None
     sort_by: Optional[SortField] = None
     sort_order: SortOrder = SortOrder.asc
 

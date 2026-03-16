@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from company_search.api.router import router as search_router
+from company_search.api.tag_router import router as tag_router
 from company_search.config import settings
 from company_search.observability.logging import RequestLoggingMiddleware, setup_logging
 
@@ -22,3 +23,4 @@ app = FastAPI(
 
 app.add_middleware(RequestLoggingMiddleware)
 app.include_router(search_router)
+app.include_router(tag_router)
