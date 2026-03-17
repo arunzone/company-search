@@ -1,354 +1,182 @@
-# Company Search API
-
-A production-grade company search API built with **FastAPI** and **OpenSearch**, backed by the [7 Million Company Dataset](https://www.kaggle.com/datasets/peopledatalabssf/free-7-million-company-dataset).
-
-Search 7M companies by name, industry, location, and founding year — with fuzzy matching, relevance scoring, and full pagination.
+# Company Search — Technical Documentation
 
 ---
 
-## Architecture
+## Project Overview
 
-```
-GET /companies/search
-        │
-   [API Router]              validates HTTP params, returns HTTP errors
-        │ SearchFilters
-   [SearchService]           thin orchestrator (seam for future NL layer)
-        │
-   [QueryBuilder]            pure functions: filters → OpenSearch DSL
-        │
-   [OpenSearchRepository]    executes query, maps hits → domain models
-        │
-   [OpenSearch]              3-shard index, synonym analysis, edge n-grams
-```
-
-**Layer responsibilities:**
-
-| Layer | Location | Responsibility |
-|---|---|---|
-| API | `api/router.py` | HTTP params, validation, error codes |
-| Application | `application/search_service.py` | Orchestration only |
-| Domain | `domain/` | Models, ports (interfaces), pure query builder |
-| Infrastructure | `infrastructure/opensearch/` | OpenSearch client, repository, index mapping |
-| Observability | `observability/logging.py` | Structured JSON logging, request middleware |
+A production-grade company search API over the 7M dataset. The system supports structured filtering (industry, location, founding year, size), relevance-ranked full-text search, and intelligent query understanding via synonym expansion — with a tagging system for personal/shared company organisation.
 
 ---
 
-## Prerequisites
+## Architecture Overview
 
+```
+HTTP Request
+    ↓
+[FastAPI Router]          ← validates params, maps to domain models
+    ↓
+[SearchService]           ← orchestrates tag resolution, thin layer
+    ↓
+[QueryBuilder]            ← pure functions, builds OpenSearch DSL
+    ↓
+[OpenSearchRepository]    ← executes query, maps hits → domain models
+    ↓
+[OpenSearch 3-shard]      ← full-text search, bitset filter cache, scoring
+```
+
+**Key components:**
+- **API Layer** — FastAPI routers for search, tags, health, and Prometheus metrics
+- **Domain Layer** — `SearchFilters`, `SearchResult`, `Tag` models; `QueryBuilder` pure functions; repository `Protocol` interfaces
+- **Application Layer** — `SearchService` (search + tag orchestration), `TagService` (normalisation)
+- **Infrastructure Layer** — OpenSearch client, `SearchRepository` and `TagRepository` implementations
+- **Observability** — Structured JSON logging middleware, OpenTelemetry traces, Prometheus `/metrics`
+
+---
+
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Hexagonal architecture** | Domain logic has zero infrastructure imports. Swapping OpenSearch for Elasticsearch or a stub requires changing one file. Tests run without a live cluster. |
+| **`Protocol`-based ports** | `SearchRepository` and `TagRepository` are structural interfaces — no base classes, no inheritance. Enables lightweight test doubles via duck typing. |
+| **`QueryBuilder` as pure functions** | All DSL construction is stateless and I/O-free. 100% unit testable without containers or mocks. |
+| **Synonym expansion at index time** | Industry synonyms (`tech → information technology and services`) are baked in via a custom analyser. Query time stays simple; relevance stays consistent. |
+| **Separate `name_index` vs `name_search` analyser** | Edge n-gram on index-time enables prefix search; standard tokeniser on search-time avoids score dilution from n-gram matching at query time. |
+| **Filter vs must clauses** | All non-text filters (country, year range, size) go in `bool.filter` — they use OpenSearch's bitset cache and don't affect BM25 scoring. |
+| **Idempotent tag documents** | Tag doc ID is `{type}|{user_id}|{company_id}|{tag}`. Re-applying the same tag is a no-op upsert — no duplicate handling needed in application code. |
+
+---
+
+## Implementation Highlights
+
+**OpenSearch index design:**
+- 3 shards (~2.3M docs/shard), 1 replica — sized for 60 RPS with headroom for replica-fan-out reads
+- `industry` field carries synonym filter: `software → computer software`, `healthcare → hospital & health care`, enabling semantic matching without an LLM at query time
+- `name` field has `edge_ngram` (min 2, max 20) — prefix search works from the second character
+
+**Query construction (`query_builder.py`):**
+- `name` → `multi_match` on `["name^3", "domain"]` with `fuzziness: AUTO, prefix_length: 1` — typo-tolerant, name-boosted
+- Filters → `bool.filter[]` bitset-cached, zero scoring cost
+- `company_ids` filter enables tag-scoped search: service resolves tag → company ID list, appended as `ids` filter clause
+
+**Tag system (`tag_service.py`, `tag_repository.py`):**
+- Two visibility levels: `public` (all users) and `personal` (user-scoped)
+- `list_tags(user_id)` returns union of public tags + user's personal tags
+- Normalisation (`"Tech Leaders!" → "tech-leaders"`) is intentionally isolated as a single method — the Phase 3 swap point for LLM-based canonicalisation
+
+**Data pipeline (`scripts/index_companies.py`):**
+- Reads 7M-row CSV in 5,000-row chunks (memory-safe)
+- Bulk-indexes in 500-doc batches with 4 worker threads — ~15–30 min total
+- `clean_row` handles CSV data quality: float years → int, empty strings → `null`, field name remapping
+
+**Observability:**
+- `RequestLoggingMiddleware` emits structured JSON per request: method, path, status, `latency_ms`
+- OpenTelemetry auto-instruments all FastAPI routes; `GET /metrics` exposes Prometheus histograms
+- `GET /health` returns OpenSearch cluster colour — ready for load-balancer health checks
+
+---
+
+## Engineering Best Practices
+
+- **Separation of concerns** — routing, orchestration, query building, and I/O are in distinct layers with no cross-cutting imports
+- **SOLID** — `SearchRepository` Protocol satisfies ISP; `QueryBuilder` is open for extension (new filter clauses) without touching existing logic; `SearchService` depends on abstractions not implementations
+- **KISS** — `QueryBuilder` is a module of pure functions, not a class hierarchy. No abstraction until warranted
+- **Quality gate enforced via tox** — `ruff` (lint + format), `mypy` (type checking), `bandit` (security), `radon`/`xenon` (complexity), `pytest --cov=80` all run in CI before merge
+- **Configuration as code** — `pydantic-settings` validates all env vars at startup; no `os.environ.get()` scattered through the codebase
+
+---
+
+## Scalability and Performance
+
+| Concern | Approach |
+|---------|----------|
+| **60 RPS search** | 3-shard index; connection pool of 25; `bool.filter` bitset cache eliminates re-scoring on repeated filter combinations |
+| **60 RPS simultaneous filter** | Stateless API (no shared mutable state); async FastAPI; OpenSearch shard-level parallelism |
+| **Tag-scoped search at scale** | Tag resolution returns a flat list of IDs; `ids` filter is O(1) per doc in OpenSearch's bitset engine |
+| **LLM path at 30 RPS** | Tag normalisation is isolated as a single function call — wrapping it in an async LLM call with a local cache (`lru_cache` or Redis) requires no other changes |
+| **Horizontal scaling** | API is fully stateless — any number of replicas behind a load balancer. OpenSearch scales via replica shards for read-heavy workloads |
+
+---
+
+## Future Improvements
+
+1. **Query-time synonym expansion via embeddings** — Replace static synonym file with dense vector nearest-neighbour on the `industry` field for more robust semantic matching
+2. **Caching layer** — Redis in front of OpenSearch for repeated identical queries (high value for autocomplete and popular filters)
+3. **Async I/O throughout** — Switch `OpenSearch` client to `AsyncOpenSearch` to remove blocking I/O from the event loop under high concurrency
+4. **Tag consistency via LLM canonicalisation** — Replace the regex `_normalize()` with an LLM call that clusters semantically equivalent tags (`"competitors"`, `"competition"`, `"rival companies"`) into a canonical form
+
+---
+
+## Setup
+
+### Prerequisites
 - Docker and Docker Compose
-- Python 3.12 (for local development)
-- The dataset CSV at `data/companies_sorted.csv`
+- The [Kaggle 7M Companies dataset](https://www.kaggle.com/datasets/peopledatalabssf/free-7-million-company-dataset) CSV placed at `data/companies_sorted.csv`
 
----
-
-## Quick Start (Docker)
-
-### Example Usage
-
-  #### Start stack
-  docker-compose up
-
-  #### Index data (run once)
-  docker-compose exec app python scripts/index_companies.py --recreate
-
-  #### Search by name
-  GET /companies/search?name=ibm
-
-  #### Filtered: tech companies in US founded after 2000
-  GET /companies/search?industry=information+technology+and+services&location=united+states&founded_year_m
-  in=2000
-
-  #### Paginated
-  GET /companies/search?name=accenture&page=2&size=20
-
-  #### Performance test
-  `ab -n 60 -c 60 "http://127.0.0.1:8000/companies/search?name=ibm"`
-
-
-### 1. Start OpenSearch + index data + run API
+### Run the full stack
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
-This runs three steps in order:
-1. `opensearch` — starts OpenSearch (waits until healthy)
-2. `setup` — creates the index and bulk-indexes the CSV
-3. `app` — starts the FastAPI server on port `8000`
+This starts OpenSearch, runs the indexing pipeline (~15–30 min for 7M docs), then starts the API on port `8000`.
 
-OpenSearch Dashboards is available at [http://localhost:5601](http://localhost:5601).
-
-> **First run note:** Indexing 7M documents takes ~15–30 minutes depending on your machine. Progress is logged to the `setup` container.
-
-### 2. Test the API
+### Development (OpenSearch only)
 
 ```bash
-curl "http://localhost:8000/companies/search?name=ibm"
+docker compose -f docker-compose.dev.yml up
 ```
 
----
-
-## Development Setup
-
-### 1. Start OpenSearch only
+### Re-index from scratch
 
 ```bash
-docker-compose -f docker-compose.dev.yml up -d
+docker-compose run --rm setup python scripts/index_companies.py --recreate
 ```
 
-### 2. Install the package in editable mode
+### Run tests
 
 ```bash
-pip install -e ".[testing]"
+docker-compose -f docker-compose.dev.yml run --rm app tox
 ```
-
-### 3. Set environment variables
-
-```bash
-cp .env.example .env
-# Edit .env if your OpenSearch config differs from defaults
-```
-
-### 4. Run the API locally
-
-```bash
-python -m company_search
-```
-
-API is available at [http://localhost:8000](http://localhost:8000).
-Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs).
-
----
-
-## Indexing Data
-
-Run the indexing script to load the CSV into OpenSearch:
-
-```bash
-# Default: index to existing index (skips if index exists)
-python scripts/index_companies.py
-
-# Force recreate the index and re-index all data
-python scripts/index_companies.py --recreate
-
-# Custom CSV path
-python scripts/index_companies.py --csv /path/to/companies.csv --recreate
-```
-
-**What the script does:**
-- Reads the CSV in 5 000-row chunks (memory-safe for 7M rows)
-- Cleans data: `NaN → None`, `float years → int`
-- Skips rows with no company name
-- Bulk-indexes in parallel batches of 500 documents
-- Reports progress and error counts
 
 ---
 
 ## API Reference
 
-### `GET /companies/search`
-
-Search companies with optional filters.
-
-| Parameter | Type | Description |
-|---|---|---|
-| `name` | string | Company name — fuzzy match with relevance scoring |
-| `industry` | string | Exact industry filter (e.g. `computer software`) |
-| `location` | string | Locality or country — partial match |
-| `founded_year_min` | integer | Founding year range start (inclusive) |
-| `founded_year_max` | integer | Founding year range end (inclusive) |
-| `size_range` | string | Exact size range (e.g. `10001+`, `51-200`) |
-| `page` | integer | Page number, default `1` |
-| `size` | integer | Results per page, default `10`, max `100` |
-
-**Response:**
-
-```json
-{
-  "total": 42381,
-  "page": 1,
-  "size": 10,
-  "results": [
-    {
-      "id": "5872184",
-      "name": "ibm",
-      "domain": "ibm.com",
-      "year_founded": 1911,
-      "industry": "information technology and services",
-      "size_range": "10001+",
-      "locality": "new york, new york, united states",
-      "country": "united states",
-      "linkedin_url": "linkedin.com/company/ibm",
-      "score": 12.34
-    }
-  ]
-}
-```
-
-**Example queries:**
-
-```bash
-# Search by name (fuzzy)
-curl "http://localhost:8000/companies/search?name=ibm"
-
-# Filter by industry
-curl "http://localhost:8000/companies/search?industry=computer+software"
-
-# Filter by location
-curl "http://localhost:8000/companies/search?location=california"
-
-# Year range filter
-curl "http://localhost:8000/companies/search?founded_year_min=2000&founded_year_max=2010"
-
-# Combined filters
-curl "http://localhost:8000/companies/search?industry=internet&location=united+states&founded_year_min=2005&size_range=51-200"
-
-# Pagination
-curl "http://localhost:8000/companies/search?name=accenture&page=2&size=20"
-```
-
-**Known industry values:**
+### Search
 
 ```
-information technology and services
-computer software
-internet
-financial services
-hospital & health care
-management consulting
-marketing and advertising
-real estate
-pharmaceuticals
-telecommunications
-mechanical or industrial engineering
-logistics and supply chain
+GET /companies/search
 ```
 
----
+| Param | Type | Description |
+|-------|------|-------------|
+| `name` | string | Company name (fuzzy, prefix-aware) |
+| `industry` | string | Exact industry filter (synonym-expanded) |
+| `locality` | string | City/locality (partial match) |
+| `country` | string | Country (exact) |
+| `founded_year_min` | int | Founding year range start |
+| `founded_year_max` | int | Founding year range end |
+| `size_range` | string | e.g. `10001+`, `1001-5000` |
+| `tags` | `public` \| `personal` | Filter to tagged companies |
+| `sort_by` | `relevance` \| `name` \| `size` \| `founded_year` | Sort field |
+| `sort_order` | `asc` \| `desc` | Sort direction |
+| `user_id` | string | Includes personal tags for this user |
+| `page` | int | Page number (default: 1) |
+| `size` | int | Results per page (default: 10, max: 100) |
 
-## Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# With coverage
-pytest --cov company_search --cov-report term-missing
-
-# Run full quality gate (lint + type check + security + tests)
-tox
-
-# Format code
-tox -e format
-
-# Tests only (no linting)
-tox -e test
-```
-
-**Test strategy:**
-- `tests/test_query_builder.py` — pure unit tests, no mocking, no OpenSearch required
-- `tests/test_search_endpoint.py` — API tests using a stub repository (no OpenSearch required)
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `OPENSEARCH_HOST` | `localhost` | OpenSearch hostname |
-| `OPENSEARCH_PORT` | `9200` | OpenSearch port |
-| `OPENSEARCH_USER` | `admin` | OpenSearch username |
-| `OPENSEARCH_PASSWORD` | `OpenSearch!C0mp@ny` | OpenSearch password |
-| `OPENSEARCH_USE_SSL` | `true` | Enable SSL |
-| `OPENSEARCH_VERIFY_CERTS` | `false` | Verify SSL certs |
-| `OPENSEARCH_INDEX` | `companies` | Index name |
-| `FASTAPI_HOST` | `0.0.0.0` | API bind host |
-| `FASTAPI_PORT` | `8000` | API bind port |
-| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`) |
-
----
-
-## Index Design
-
-**3 shards** — sized for 7M documents (~2.3M/shard), supports 60 RPS with pool size of 25 connections.
-
-**Field mapping highlights:**
-
-| Field | Type | Notes |
-|---|---|---|
-| `name` | `text` + `.keyword` | Edge n-gram at index time for prefix search; standard analyzer at search time |
-| `industry` | `text` + `.keyword` | Synonym filter maps `"tech"` → `"information technology and services"` at index time |
-| `locality` / `country` | `text` + `.keyword` | Partial match + fuzzy for location search |
-| `year_founded` | `integer` | Range queries |
-| `size_range` | `keyword` | Exact filter |
-
-**Industry synonym examples** (mapped at index time, no runtime cost):
+### Tags
 
 ```
-tech, technology → information technology and services
-software         → computer software
-healthcare       → hospital & health care
-ecommerce        → internet
-consulting       → management consulting
+POST   /companies/{company_id}/tags
+DELETE /companies/{company_id}/tags/{tag}?tag_type=X&user_id=Y
+GET    /tags?user_id=Y
+GET    /tags/{tag}/companies?user_id=Y&page=1&size=10
 ```
 
----
-
-## Observability
-
-All logs are emitted as **structured JSON** to stdout, suitable for Datadog, CloudWatch, or any log aggregator.
-
-**Per-request log** (from middleware):
-```json
-{"ts": "2026-03-15T10:00:00", "level": "INFO", "logger": "company_search.access",
- "msg": "{\"method\": \"GET\", \"path\": \"/companies/search\", \"query\": \"name=ibm\", \"status\": 200, \"latency_ms\": 23.4}"}
-```
-
-**Search log** (from service):
-```json
-{"ts": "2026-03-15T10:00:00", "level": "INFO", "logger": "company_search.application.search_service",
- "msg": "search filters={'name': 'ibm'} page=1 size=10"}
-```
-
-Set `LOG_LEVEL=DEBUG` to see the full OpenSearch query body per request.
-
----
-
-## Project Structure
+### Observability
 
 ```
-company-search/
-├── data/
-│   └── companies_sorted.csv          7M company dataset
-├── scripts/
-│   └── index_companies.py            Bulk indexing script
-├── src/company_search/
-│   ├── domain/
-│   │   ├── models.py                 SearchFilters, SearchResult, SearchResponse
-│   │   ├── ports.py                  SearchRepository Protocol
-│   │   └── query_builder.py          Pure OpenSearch DSL builder
-│   ├── application/
-│   │   └── search_service.py         Orchestration
-│   ├── infrastructure/opensearch/
-│   │   ├── client.py                 Connection factory
-│   │   ├── index_mapping.py          Index settings + analyzers
-│   │   └── repository.py             SearchRepository implementation
-│   ├── api/
-│   │   ├── router.py                 GET /companies/search
-│   │   └── dependencies.py           FastAPI DI wiring
-│   ├── observability/
-│   │   └── logging.py                JSON logger + request middleware
-│   ├── config.py
-│   ├── main.py
-│   └── __main__.py
-├── tests/
-│   ├── test_query_builder.py
-│   └── test_search_endpoint.py
-├── docker-compose.yml                Full stack (OpenSearch + API)
-├── docker-compose.dev.yml            Dev (OpenSearch only)
-├── Dockerfile.dev
-├── pyproject.toml
-├── setup.cfg
-└── tox.ini
+GET /health    → OpenSearch cluster status
+GET /metrics   → Prometheus metrics
 ```
