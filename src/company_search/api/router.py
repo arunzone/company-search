@@ -35,7 +35,8 @@ def search_companies(
     country: Annotated[Optional[str], Query(description="Country (exact match)")] = None,
     founded_year_min: Annotated[Optional[int], Query(description="Founded year range start", ge=1800, le=2100)] = None,
     founded_year_max: Annotated[Optional[int], Query(description="Founded year range end", ge=1800, le=2100)] = None,
-    size_range: Annotated[Optional[str], Query(description="Size range exact match, e.g. '10001+'")] = None,
+    size_min: Annotated[Optional[int], Query(description="Minimum company size (employees)", ge=1)] = None,
+    size_max: Annotated[Optional[int], Query(description="Maximum company size (employees)", ge=1)] = None,
     tags: Annotated[Optional[list[TagType]], Query(description="Filter by tag")] = None,
     sort_by: Annotated[
         Optional[SortField], Query(description="Sort field: relevance, name, size, founded_year")
@@ -59,7 +60,8 @@ def search_companies(
         country=country,
         founded_year_min=founded_year_min,
         founded_year_max=founded_year_max,
-        size_range=size_range,
+        size_min=size_min,
+        size_max=size_max,
         tags=tags or [],
         user_id=user_id,
         sort_by=sort_by,

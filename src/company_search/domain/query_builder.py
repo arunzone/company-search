@@ -103,13 +103,30 @@ def _build_year_range(filters: SearchFilters) -> dict[str, int]:
 def _build_term_clauses(filters: SearchFilters) -> list[dict[str, Any]]:
     clauses: list[dict[str, Any]] = []
     if filters.industry:
-        clauses.append({"term": {"industry.keyword": filters.industry}})
+        clauses.append({"term": {"industry.keyword": filters.industry.lower()}})
     if filters.locality:
         clauses.append({"match": {"locality": {"query": filters.locality, "fuzziness": "AUTO"}}})
     if filters.country:
         clauses.append({"term": {"country.keyword": filters.country}})
-    if filters.size_range:
-        clauses.append({"term": {"size_range": filters.size_range}})
+    if filters.size_min is not None or filters.size_max is not None:
+        # Match companies whose size band overlaps the requested range.
+        # Overlap condition: company.size_min <= requested_max AND company.size_max >= requested_min
+        size_clauses: list[dict[str, Any]] = []
+        if filters.size_max is not None:
+            size_clauses.append({"range": {"size_min": {"lte": filters.size_max}}})
+        if filters.size_min is not None:
+            # For open-ended buckets (size_max is null/missing), always include them when
+            # the user's min is within their lower bound. Use must_not + range to handle nulls.
+            size_clauses.append({
+                "bool": {
+                    "should": [
+                        {"range": {"size_max": {"gte": filters.size_min}}},
+                        {"bool": {"must_not": {"exists": {"field": "size_max"}}}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            })
+        clauses.extend(size_clauses)
     return clauses
 
 

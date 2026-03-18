@@ -34,7 +34,8 @@ class SearchFilters(BaseModel):
     country: Optional[str] = None
     founded_year_min: Optional[int] = None
     founded_year_max: Optional[int] = None
-    size_range: Optional[str] = None
+    size_min: Optional[int] = None
+    size_max: Optional[int] = None
     tags: list[TagType] = []
     user_id: Optional[str] = None
     company_ids: Optional[list[str]] = None

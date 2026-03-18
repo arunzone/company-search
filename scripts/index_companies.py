@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CSV = Path(__file__).parent.parent / "data" / "companies_sorted.csv"
 CHUNK_SIZE = 5_000
 BULK_BATCH = 500
+BULK_THREAD_COUNT = 4
 
 
 def get_client() -> OpenSearch:
@@ -46,6 +47,7 @@ def get_client() -> OpenSearch:
         verify_certs=settings.opensearch_verify_certs,
         ssl_show_warn=False,
         timeout=30,
+        maxsize=BULK_THREAD_COUNT,
     )
 
 
@@ -61,6 +63,25 @@ def ensure_index(client: OpenSearch, index: str, recreate: bool) -> None:
         client.indices.create(index=index, body=INDEX_MAPPING)
     else:
         logger.info("Index '%s' already exists — skipping creation", index)
+
+
+def _parse_size_range(value: object) -> tuple[int | None, int | None]:
+    """Parse '11 - 50' → (11, 50) and '10001+' → (10001, None)."""
+    if not value or (isinstance(value, float) and math.isnan(value)):
+        return None, None
+    s = str(value).strip()
+    if s.endswith("+"):
+        try:
+            return int(s[:-1].replace(",", "").strip()), None
+        except ValueError:
+            return None, None
+    if "-" in s:
+        parts = s.split("-", 1)
+        try:
+            return int(parts[0].replace(",", "").strip()), int(parts[1].replace(",", "").strip())
+        except ValueError:
+            return None, None
+    return None, None
 
 
 def clean_row(row: dict) -> dict:
@@ -87,6 +108,8 @@ def clean_row(row: dict) -> dict:
         "year_founded": year,
         "industry": nullable(row.get("industry")),
         "size_range": nullable(row.get("size range")),
+        "size_min": _parse_size_range(row.get("size range"))[0],
+        "size_max": _parse_size_range(row.get("size range"))[1],
         "locality": nullable(row.get("locality")),
         "country": nullable(row.get("country")),
         "linkedin_url": nullable(row.get("linkedin url")),
@@ -141,7 +164,7 @@ def run(csv_path: Path, recreate: bool) -> None:
             client,
             generate_actions(csv_path, index),
             chunk_size=BULK_BATCH,
-            thread_count=4,
+            thread_count=BULK_THREAD_COUNT,
             raise_on_error=False,
         ):
             if ok:

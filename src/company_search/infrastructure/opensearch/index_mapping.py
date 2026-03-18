@@ -46,6 +46,12 @@ INDEX_MAPPING: dict = {
                     "max_gram": 20,
                 },
             },
+            "normalizer": {
+                "lowercase_normalizer": {
+                    "type": "custom",
+                    "filter": ["lowercase"],
+                },
+            },
             "analyzer": {
                 # Used at index time — builds edge n-grams for prefix search
                 "name_index_analyzer": {
@@ -86,10 +92,12 @@ INDEX_MAPPING: dict = {
                 "type": "text",
                 "analyzer": "industry_analyzer",
                 "fields": {
-                    "keyword": {"type": "keyword", "ignore_above": 256},
+                    "keyword": {"type": "keyword", "normalizer": "lowercase_normalizer", "ignore_above": 256},
                 },
             },
             "size_range": {"type": "keyword"},
+            "size_min": {"type": "integer"},
+            "size_max": {"type": "integer"},
             "locality": {
                 "type": "text",
                 "analyzer": "standard",
